@@ -37,7 +37,7 @@ jobs:
       - name: Deploy using encrypted FTPS
         shell: bash
         env:
-          FTP_HOST: ftp.itec-ai.com
+          FTP_HOST: 147.93.54.140
           FTP_USER: ${{ secrets.HOSTINGER_FTP_USER }}
           FTP_PASSWORD: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
         run: |

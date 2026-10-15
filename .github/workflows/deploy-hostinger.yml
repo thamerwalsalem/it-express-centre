@@ -2,6 +2,10 @@ name: Deploy website to Hostinger (SFTP over SSH)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '*.html'
 
 permissions:
   contents: read

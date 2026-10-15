@@ -1,4 +1,4 @@
-name: Deploy website to Hostinger (FTPS)
+name: Deploy website to Hostinger (SFTP over SSH)
 
 on:
   workflow_dispatch:
@@ -15,42 +15,49 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout website code
+      - name: Check out website
         uses: actions/checkout@v4
 
-      - name: Prepare publish-only HTML files
-        shell: bash
+      - name: Prepare static website
         run: |
           mkdir -p deploy
           find . -maxdepth 1 -type f -name '*.html' -exec cp -t deploy/ {} +
           test -f deploy/index.html
 
-      - name: Check FTP credentials
+      - name: Check SSH deployment secrets
         shell: bash
         env:
-          FTP_USER: ${{ secrets.HOSTINGER_FTP_USER }}
-          FTP_PASSWORD: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
+          SSH_PASSWORD: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+          SSH_FINGERPRINT: ${{ secrets.HOSTINGER_SSH_FINGERPRINT }}
         run: |
-          test -n "$FTP_USER"
-          test -n "$FTP_PASSWORD"
+          test -n "$SSH_PASSWORD"
+          test -n "$SSH_FINGERPRINT"
+          case "$SSH_FINGERPRINT" in SHA256:*) ;; *) echo 'Host-key fingerprint must start with SHA256:'; exit 1 ;; esac
 
-      - name: Deploy using encrypted FTPS
+      - name: Install SSH deployment utility
+        run: sudo apt-get install -y -qq sshpass
+
+      - name: Verify Hostinger SSH host key
         shell: bash
         env:
-          FTP_HOST: 147.93.54.140
-          FTP_USER: ${{ secrets.HOSTINGER_FTP_USER }}
-          FTP_PASSWORD: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
+          SSH_FINGERPRINT: ${{ secrets.HOSTINGER_SSH_FINGERPRINT }}
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq lftp
-          lftp -u "$FTP_USER","$FTP_PASSWORD" "ftp://$FTP_HOST" -e '
-            set cmd:fail-exit yes
-            set ftp:ssl-force true
-            set ftp:ssl-protect-data true
-            set ssl:verify-certificate true
-            set ftp:passive-mode true
-            set net:max-retries 2
-            set net:timeout 20
-            mirror --reverse --verbose --parallel=2 deploy/ .
-            bye
-          '
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          ssh-keyscan -T 15 -p 65002 -t ed25519 147.93.54.140 > "$HOME/.ssh/known_hosts" 2>/dev/null
+          test -s "$HOME/.ssh/known_hosts"
+          actual=$(ssh-keygen -lf "$HOME/.ssh/known_hosts" -E sha256 | awk '{print $2}')
+          if [ "$actual" != "$SSH_FINGERPRINT" ]; then
+            echo 'Host SSH fingerprint mismatch. Stopping deployment.'
+            exit 1
+          fi
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Publish website to Hostinger via SSH
+        shell: bash
+        env:
+          SSHPASS: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+        run: |
+          sshpass -e rsync -rvz --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
+            -e "ssh -p 65002 -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o PreferredAuthentications=password -o PubkeyAuthentication=no" \
+            deploy/ u576784635@147.93.54.140:/home/u576784635/domains/itec-ai.com/public_html/
